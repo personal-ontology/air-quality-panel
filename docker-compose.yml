@@ -1,0 +1,10 @@
+services:
+  air-quality-panel:
+    build: .
+    container_name: air-quality-panel
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - ./data:/app/data

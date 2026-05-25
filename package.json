@@ -1,0 +1,19 @@
+{
+  "name": "@personal-ontology/air-quality-panel",
+  "version": "0.0.1",
+  "description": "Personal air quality panel for personal-ontology — pulls readings from a Qingping Air Monitor Pro via cloud API (and BLE in a follow-up). Single-user, self-hosted.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "serve": "bun run src/server.ts"
+  },
+  "dependencies": {
+    "croner": "^10.0.1",
+    "hono": "^4.12.22"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}

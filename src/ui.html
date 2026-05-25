@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air quality — personal-ontology</title>
+<style>
+  :root {
+    --bg: #282828;
+    --bg-2: #1f1f1f;
+    --line: #3a3a3a;
+    --fg: #eaeaea;
+    --muted: #6a6a6a;
+    --red: #f7768e;
+    --green: #9ece6a;
+    --blue: #7aa2f7;
+    --purple: #bb9af7;
+    --cyan: #7dcfff;
+    --orange: #ff9e64;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    margin: 0;
+    padding: 28px 24px 80px;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.1px; }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+  .status.ok { background: rgba(158, 206, 106, 0.13); color: var(--green); }
+  .status.stale { background: rgba(255, 158, 100, 0.13); color: var(--orange); }
+  .status.no_devices { background: rgba(247, 118, 142, 0.13); color: var(--red); }
+  .meta { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  button {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--fg);
+    padding: 5px 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  button:hover:not(:disabled) { background: #333; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .device { margin-bottom: 36px; }
+  .device-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+  .device-name { font-size: 13px; color: var(--muted); }
+  .device-meta {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+  }
+  .metric {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric-value {
+    font-size: 26px;
+    font-weight: 300;
+    letter-spacing: -0.5px;
+    margin: 4px 0 2px;
+  }
+  .metric-value .unit { color: var(--muted); font-size: 13px; margin-left: 4px; }
+  .metric.level-good .metric-value { color: var(--green); }
+  .metric.level-moderate .metric-value { color: var(--orange); }
+  .metric.level-bad .metric-value { color: var(--red); }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .token-form {
+    max-width: 380px;
+    margin: 100px auto 0;
+    padding: 24px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .token-form h2 { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+  .token-form p { margin: 0 0 16px; color: var(--muted); font-size: 12.5px; }
+  .token-form input {
+    width: 100%; padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--line); color: var(--fg);
+    border-radius: 4px; font-family: "SF Mono", Menlo, monospace; font-size: 12px;
+  }
+  .token-form input:focus { outline: none; border-color: var(--blue); }
+  .token-form button {
+    margin-top: 12px; padding: 8px 16px;
+    background: var(--blue); border-color: var(--blue); color: var(--bg); font-weight: 500;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><div class="empty">Loading…</div></div>
+<script>
+const TOKEN_KEY = "aq_panel_bearer";
+const $ = (id) => document.getElementById(id);
+const getToken = () => localStorage.getItem(TOKEN_KEY);
+const saveToken = (t) => localStorage.setItem(TOKEN_KEY, t);
+const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function fmtTs(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function relTime(iso) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  const abs = Math.abs(ms);
+  const future = ms > 0;
+  const h = abs / 3_600_000;
+  if (h < 1) return future ? `in ${Math.round(abs / 60_000)}m` : `${Math.round(abs / 60_000)}m ago`;
+  if (h < 24) return future ? `in ${Math.round(h)}h` : `${Math.round(h)}h ago`;
+  return future ? `in ${Math.round(h / 24)}d` : `${Math.round(h / 24)}d ago`;
+}
+
+// Air-quality thresholds (WHO 2021 + common indoor heuristics)
+function level(metric, value) {
+  if (value === null || value === undefined) return "";
+  if (metric === "pm25") return value < 15 ? "good" : value < 35 ? "moderate" : "bad";
+  if (metric === "pm10") return value < 45 ? "good" : value < 100 ? "moderate" : "bad";
+  if (metric === "co2") return value < 800 ? "good" : value < 1200 ? "moderate" : "bad";
+  if (metric === "tvoc") return value < 220 ? "good" : value < 660 ? "moderate" : "bad";
+  return "";
+}
+
+function metricCard(label, value, unit, metric) {
+  if (value === null || value === undefined) return "";
+  const lvl = level(metric, value);
+  const cls = lvl ? "metric level-" + lvl : "metric";
+  const formatted = metric === "co2" ? Math.round(value) : Number(value).toFixed(1);
+  return `<div class="${cls}">
+    <div class="metric-label">${esc(label)}</div>
+    <div class="metric-value">${esc(formatted)}<span class="unit">${esc(unit)}</span></div>
+  </div>`;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { ...(opts && opts.headers), Authorization: "Bearer " + getToken() },
+  });
+  if (r.status === 401) {
+    clearToken();
+    renderTokenForm("Token rejected. Try again.");
+    throw new Error("unauthorized");
+  }
+  if (!r.ok) throw new Error("API " + r.status + " on " + path);
+  return r.json();
+}
+
+function renderTokenForm(errMsg) {
+  $("root").innerHTML = `
+    <div class="token-form">
+      <h2>Air quality panel</h2>
+      <p>Paste your bearer token to view your readings. Stored in this browser only.</p>
+      <input id="t" type="password" placeholder="bearer token" autocomplete="off" autofocus>
+      <div><button id="save">Save</button></div>
+      ${errMsg ? `<div style="color:var(--red);margin-top:8px;font-size:12px">${esc(errMsg)}</div>` : ""}
+    </div>`;
+  $("save").addEventListener("click", () => {
+    const v = $("t").value.trim();
+    if (v) { saveToken(v); render(); }
+  });
+  $("t").addEventListener("keydown", (e) => { if (e.key === "Enter") $("save").click(); });
+}
+
+async function refreshNow() {
+  const btn = $("refresh");
+  btn.disabled = true;
+  btn.textContent = "Refreshing…";
+  try {
+    await api("/refresh", { method: "POST" });
+    await render();
+  } catch (e) {
+    if (e.message !== "unauthorized") alert("Refresh failed: " + e.message);
+  } finally {
+    if ($("refresh")) {
+      $("refresh").disabled = false;
+      $("refresh").textContent = "Refresh now";
+    }
+  }
+}
+
+async function render() {
+  if (!getToken()) return renderTokenForm();
+  $("root").innerHTML = '<div class="empty">Loading…</div>';
+
+  try {
+    const [{ data: health }, { data }] = await Promise.all([api("/health"), api("/data")]);
+    const statusLabel = {
+      ok: "✓ ok",
+      stale: "● stale",
+      no_devices: "⚠ no devices",
+    }[health.status] || health.status;
+
+    let html = `
+      <header>
+        <h1>Air quality</h1>
+        <span class="status ${esc(health.status)}">${esc(statusLabel)}</span>
+        <span class="meta">last reading ${esc(fmtTs(health.last_seen_at))}</span>
+        <span class="spacer"></span>
+        <button id="refresh">Refresh now</button>
+      </header>`;
+
+    if (!data.devices.length) {
+      html += `<div class="empty">
+        No devices yet. Set QINGPING_APP_ID and QINGPING_APP_KEY in <code>.env</code>,
+        then trigger a refresh.
+      </div>`;
+    } else {
+      for (const dev of data.devices) {
+        const r = dev.latest;
+        html += `
+          <div class="device">
+            <div class="device-head">
+              <div class="device-name">${esc(dev.name || dev.device_id)}</div>
+              <div class="device-meta">${esc(dev.model || "")} ${dev.device_id ? "· " + esc(dev.device_id) : ""}</div>
+              <div class="device-meta">${r ? esc(fmtTs(r.measured_at)) + " · " + esc(r.source) : ""}</div>
+            </div>`;
+        if (r) {
+          html += '<div class="grid">';
+          html += metricCard("PM2.5", r.pm25, "µg/m³", "pm25");
+          html += metricCard("PM10", r.pm10, "µg/m³", "pm10");
+          html += metricCard("CO₂", r.co2, "ppm", "co2");
+          html += metricCard("Temperature", r.temperature, "°C", "temperature");
+          html += metricCard("Humidity", r.humidity, "%", "humidity");
+          html += metricCard("TVOC", r.tvoc, "ppb", "tvoc");
+          html += '</div>';
+        } else {
+          html += '<div class="empty">No readings yet.</div>';
+        }
+        html += '</div>';
+      }
+    }
+
+    $("root").innerHTML = html;
+    $("refresh")?.addEventListener("click", refreshNow);
+  } catch (e) {
+    if (e.message !== "unauthorized") {
+      $("root").innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+    }
+  }
+}
+
+render();
+</script>
+</body>
+</html>
